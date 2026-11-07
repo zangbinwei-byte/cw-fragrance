@@ -141,54 +141,77 @@ Davidoff Cool Water EDT 125ml, 4, 3414204200155"></textarea>
         </section>
     </main>
 
-    <script>
+<script>
         let externalCsvLibrary = new Map(); 
         let barcodeMap = new Map();         
         let html5QrcodeScanner = null;
         let isCameraActive = false;
 
-        document.getElementById('csvFileInput').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+        // 页面一加载，自动从 GitHub 根目录抓取云端大 CSV 文件
+        window.addEventListener('DOMContentLoaded', () => {
+            const info = document.getElementById('csvFileInfo');
+            info.classList.remove('hidden');
+            info.textContent = '⏳ 正在自动加载云端香水字典（约100MB，请稍候）...';
 
-            Papa.parse(file, {
-                header: true,
-                skipEmptyLines: true,
-                complete: function(results) {
-                    externalCsvLibrary.clear();
-                    let loadedCount = 0;
+            fetch('./all_global_perfumes_barcodes.csv')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络请求失败，状态码: ' + response.status);
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    // 利用 Papa.parse 直接解析下载好的文本字符串
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: function(results) {
+                            externalCsvLibrary.clear();
+                            let loadedCount = 0;
 
-                    results.data.forEach(row => {
-                        let barcode = "", name = "";
-                        for (let key in row) {
-                            const k = key.toLowerCase().trim();
-                            if (["barcode", "code", "gtin", "ean", "upc"].includes(k)) barcode = row[key];
-                            if (["name", "product_name", "title", "product", "item"].includes(k)) name = row[key];
-                        }
-                        if (!barcode || !name) {
-                            const values = Object.values(row).map(v => (v || "").toString().trim());
-                            values.forEach(val => {
-                                if (/^\d{8,14}$/.test(val)) barcode = val;
-                                else if (val.length > 3 && !name) name = val;
+                            results.data.forEach(row => {
+                                let barcode = "", name = "";
+                                for (let key in row) {
+                                    const k = key.toLowerCase().trim();
+                                    if (["barcode", "code", "gtin", "ean", "upc"].includes(k)) barcode = row[key];
+                                    if (["name", "product_name", "title", "product", "item"].includes(k)) name = row[key];
+                                }
+                                if (!barcode || !name) {
+                                    const values = Object.values(row).map(v => (v || "").toString().trim());
+                                    values.forEach(val => {
+                                        if (/^\d{8,14}$/.test(val)) barcode = val;
+                                        else if (val.length > 3 && !name) name = val;
+                                    });
+                                }
+
+                                if (barcode && name) {
+                                    externalCsvLibrary.set(barcode.trim(), name.trim());
+                                    loadedCount++;
+                                }
                             });
-                        }
 
-                        if (barcode && name) {
-                            externalCsvLibrary.set(barcode.trim(), name.trim());
-                            loadedCount++;
+                            info.textContent = `✅ 云端 CSV 加载成功！已索引 ${loadedCount} 件商品。`;
+                            if (typeof updateStatusBadge === 'function') {
+                                updateStatusBadge();
+                            }
+                        },
+                        error: function(err) {
+                            console.error("PapaParse 解析出错:", err);
+                            info.textContent = `❌ CSV 解析失败: ${err.message}`;
                         }
                     });
-
-                    const info = document.getElementById('csvFileInfo');
-                    info.classList.remove('hidden');
-                    info.textContent = `✅ CSV Loaded! Total ${loadedCount} items indexed.`;
-                    updateStatusBadge();
-                }
-            });
+                })
+                .catch(error => {
+                    console.error("云端加载失败:", error);
+                    info.textContent = `❌ 无法加载云端字典，请检查文件名是否正确。`;
+                });
         });
 
         function loadDemoPerfumes() {
-            const sampleText = `Calvin Klein CK One EDT 100ml, 6, 3607340751950
+            const sampleText = `Calvin Klein CK One EDT 100ml, 6, 3607340751950`;
+            // 如果需要兼容旧的演示按钮，可以保留
+        }
+    </script>
 Davidoff Cool Water EDT 125ml, 4, 3414204200155
 Ariana Grande Cloud EDP 100ml, 5, 812256023719
 Marc Jacobs Daisy EDT 50ml, 3, 3607345731218
