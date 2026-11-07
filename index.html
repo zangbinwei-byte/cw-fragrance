@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CW Perfume Counter & CSV Matcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@html5-qrcode/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        #reader video {
+            object-fit: cover !important;
+            border-radius: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen pb-12">
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 sticky top-0 z-50 shadow-md">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-sm font-bold flex items-center gap-2 text-indigo-400">
+                📦 CW Perfume Counter & CSV Matcher
+            </h1>
+            <div id="statusBadge" class="text-xs px-2.5 py-1 rounded-full bg-slate-700 text-slate-300 font-mono">
+                CSV Library: Not Loaded | Invoices: 0 Items
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 mt-4 space-y-4">
+        <!-- Step 1: 导入 CSV 库与发票清单 -->
+        <section class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm space-y-4">
+            <h2 class="text-xs font-semibold text-slate-300 flex items-center gap-2 uppercase tracking-wider">
+                <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">1</span>
+                Load Barcode CSV Library & Invoice Items
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- A: 导入 CSV 数据库 -->
+                <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-700/60 space-y-2">
+                    <label class="block text-xs font-medium text-indigo-300">Option A: Import Barcode CSV File</label>
+                    <p class="text-[11px] text-slate-400">Select your downloaded perfume CSV.</p>
+                    <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer"/>
+                    <div id="csvFileInfo" class="text-[11px] font-mono text-emerald-400 hidden"></div>
+                </div>
+
+                <!-- B: 手动录入或使用已匹配列表 -->
+                <div class="bg-slate-900/60 p-3 rounded-lg border border-slate-700/60 space-y-2">
+                    <label class="block text-xs font-medium text-indigo-300">Option B: Load Preset / Direct Input</label>
+                    <p class="text-[11px] text-slate-400">Supported Formats: <code class="text-slate-300">Product Name, Quantity, Barcode</code> (or Tab separated)</p>
+                    <button onclick="loadDemoPerfumes()" class="w-full text-xs bg-purple-600 hover:bg-purple-500 text-white py-1.5 rounded-lg transition font-medium">Load Demo Perfumes Data</button>
+                </div>
+            </div>
+
+            <!-- 发票明细输入区 -->
+            <div>
+                <label class="block text-[11px] text-slate-400 mb-1">Invoice / Delivery Docket Lines (Paste here):</label>
+                <textarea id="pasteInput" rows="4" class="w-full text-xs p-2.5 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-slate-200" placeholder="Calvin Klein CK One EDT 100ml, 6, 3607340751950
+Davidoff Cool Water EDT 125ml, 4, 3414204200155"></textarea>
+            </div>
+
+            <button onclick="buildAuditPool()" class="w-full text-xs bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg transition font-semibold shadow-md">
+                🚀 Build Audit Pool & Start Scanning
+            </button>
+        </section>
+
+        <!-- Step 2: 扫码核心区 -->
+        <section id="scanSection" class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm hidden">
+            <h2 class="text-xs font-semibold mb-3 text-slate-300 flex items-center gap-2 uppercase tracking-wider">
+                <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">2</span>
+                Barcode Scanning & Deduction
+            </h2>
+            
+            <div class="mb-4 bg-slate-900 p-3 rounded-xl border border-slate-700/50">
+                <div class="flex justify-between text-xs font-semibold mb-1">
+                    <span class="text-slate-400">Total Progress</span>
+                    <span id="progressText" class="font-mono text-indigo-400">0 / 0 (0%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                    <div id="progressBar" class="bg-indigo-500 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-[11px] text-slate-400 mb-1">Manual Barcode Input / USB Gun Scanner</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="manualBarcode" placeholder="Scan barcode or press Enter" class="flex-1 text-xs px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-slate-200" onkeydown="if(event.key==='Enter') processBarcode(this.value)">
+                            <button onclick="processBarcode(document.getElementById('manualBarcode').value)" class="bg-slate-700 hover:bg-slate-600 text-xs px-4 py-2 rounded-lg">Deduct</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button id="toggleCameraBtn" onclick="toggleCamera()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition shadow-sm">
+                            📷 Turn On Camera
+                        </button>
+                        <div id="reader" class="mt-3 overflow-hidden border border-slate-700 rounded-xl hidden bg-black"></div>
+                    </div>
+
+                    <div id="feedbackMessage" class="p-3 rounded-lg text-xs font-medium hidden"></div>
+                </div>
+
+                <div class="bg-slate-900 rounded-xl p-3 border border-slate-700/50 flex flex-col h-44 md:h-auto">
+                    <span class="text-[11px] font-semibold text-slate-400 mb-2">Scan Log (Real-time Feed)</span>
+                    <div id="scanLogs" class="flex-1 overflow-y-auto space-y-1.5 text-xs font-mono">
+                        <div class="text-slate-500 italic text-[11px]">Ready for scanning...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Step 3: 差异表 -->
+        <section id="tableSection" class="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-sm hidden">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-xs font-semibold text-slate-300 flex items-center gap-2 uppercase tracking-wider">
+                    <span class="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-400 text-xs flex items-center justify-center font-bold">3</span>
+                    Audit Summary & Discrepancy Report
+                </h2>
+                <button onclick="exportReport()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition font-medium">
+                    📥 Export Report (CSV)
+                </button>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-900 text-slate-400 uppercase font-medium border-b border-slate-700">
+                        <tr>
+                            <th class="py-2.5 px-3">Barcode</th>
+                            <th class="py-2.5 px-3">Product Name</th>
+                            <th class="py-2.5 px-3 text-center">Expected</th>
+                            <th class="py-2.5 px-3 text-center">Scanned</th>
+                            <th class="py-2.5 px-3 text-center">Diff</th>
+                            <th class="py-2.5 px-3 text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="invoiceTableBody" class="divide-y divide-slate-700/50 font-mono">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let externalCsvLibrary = new Map(); 
+        let barcodeMap = new Map();         
+        let html5QrcodeScanner = null;
+        let isCameraActive = false;
+
+        document.getElementById('csvFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    externalCsvLibrary.clear();
+                    let loadedCount = 0;
+
+                    results.data.forEach(row => {
+                        let barcode = "", name = "";
+                        for (let key in row) {
+                            const k = key.toLowerCase().trim();
+                            if (["barcode", "code", "gtin", "ean", "upc"].includes(k)) barcode = row[key];
+                            if (["name", "product_name", "title", "product", "item"].includes(k)) name = row[key];
+                        }
+                        if (!barcode || !name) {
+                            const values = Object.values(row).map(v => (v || "").toString().trim());
+                            values.forEach(val => {
+                                if (/^\d{8,14}$/.test(val)) barcode = val;
+                                else if (val.length > 3 && !name) name = val;
+                            });
+                        }
+
+                        if (barcode && name) {
+                            externalCsvLibrary.set(barcode.trim(), name.trim());
+                            loadedCount++;
+                        }
+                    });
+
+                    const info = document.getElementById('csvFileInfo');
+                    info.classList.remove('hidden');
+                    info.textContent = `✅ CSV Loaded! Total ${loadedCount} items indexed.`;
+                    updateStatusBadge();
+                }
+            });
+        });
+
+        function loadDemoPerfumes() {
+            const sampleText = `Calvin Klein CK One EDT 100ml, 6, 3607340751950
+Davidoff Cool Water EDT 125ml, 4, 3414204200155
+Ariana Grande Cloud EDP 100ml, 5, 812256023719
+Marc Jacobs Daisy EDT 50ml, 3, 3607345731218
+Versace Bright Crystal EDT 90ml, 4, 8011003803157`;
+            document.getElementById('pasteInput').value = sampleText;
+        }
+
+        function parseLine(line) {
+            line = line.trim();
+            if (!line) return null;
+
+            // 智能分隔：支持 逗号、制表符Tab、分号、或连续多个空格
+            let parts = line.split(/[\t,;]+/).map(p => p.trim()).filter(Boolean);
+            if (parts.length < 2) {
+                // 如果没有明确标点，尝试用连续空格分隔
+                parts = line.split(/\s{2,}/).map(p => p.trim()).filter(Boolean);
+            }
+
+            if (parts.length === 0) return null;
+
+            let name = "", qty = 1, barcode = "";
+
+            // 逐个字段识别类型
+            parts.forEach(part => {
+                if (/^\d{8,14}$/.test(part)) {
+                    barcode = part; // 纯8-14位数字判断为条码
+                } else if (/^\d+$/.test(part)) {
+                    qty = parseInt(part, 10); // 其他纯数字判断为数量
+                } else {
+                    if (!name) name = part; // 文字部分判断为品名
+                }
+            });
+
+            // 如果没解析出品名，跳过（避开纯数字/杂行）
+            if (!name) return null;
+
+            return { name, qty, barcode };
+        }
+
+        function buildAuditPool() {
+            const text = document.getElementById('pasteInput').value.trim();
+            if (!text) {
+                alert('Please enter invoice items or load demo data.');
+                return;
+            }
+
+            barcodeMap.clear();
+            const lines = text.split('\n');
+            let parsedCount = 0;
+
+            lines.forEach(line => {
+                const item = parseLine(line);
+                if (item) {
+                    let { name, qty, barcode } = item;
+
+                    // 如果没填条码，从加载的 CSV 库里匹配
+                    if (!barcode && externalCsvLibrary.size > 0) {
+                        for (let [code, libName] of externalCsvLibrary.entries()) {
+                            if (libName.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(libName.toLowerCase())) {
+                                barcode = code;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 如果实在找不到条码，用品名做临时 Key，防止报错
+                    const finalKey = barcode || `NAME_${name}`;
+
+                    if (barcodeMap.has(finalKey)) {
+                        barcodeMap.get(finalKey).total += qty;
+                    } else {
+                        barcodeMap.set(finalKey, { barcode: barcode || "No Barcode", name, total: qty, scanned: 0 });
+                    }
+                    parsedCount++;
+                }
+            });
+
+            if (parsedCount === 0) {
+                alert('Parsing failed. Please check your text format.');
+                return;
+            }
+
+            document.getElementById('scanSection').classList.remove('hidden');
+            document.getElementById('tableSection').classList.remove('hidden');
+            updateStatusBadge();
+            updateUI();
+        }
+
+        function processBarcode(barcode) {
+            barcode = barcode.trim();
+            if (!barcode) return;
+
+            document.getElementById('manualBarcode').value = '';
+
+            const feedback = document.getElementById('feedbackMessage');
+            feedback.classList.remove('hidden', 'bg-red-500/20', 'text-red-300', 'bg-amber-500/20', 'text-amber-300', 'bg-emerald-500/20', 'text-emerald-300');
+
+            if (!barcodeMap.has(barcode)) {
+                const realName = externalCsvLibrary.get(barcode) || "⚠️ Unknown / Unlisted Item";
+                barcodeMap.set(barcode, { barcode, name: realName, total: 0, scanned: 1 });
+                feedback.classList.add('bg-red-500/20', 'text-red-300');
+                feedback.textContent = `🚨 Alert: [${realName}] (${barcode}) is NOT in invoice list! Logged as surplus.`;
+                addLog(barcode, `🚨 Unexpected: ${realName}`, "danger");
+            } else {
+                let item = barcodeMap.get(barcode);
+                item.scanned += 1;
+                
+                if (item.scanned > item.total) {
+                    feedback.classList.add('bg-amber-500/20', 'text-amber-300');
+                    feedback.textContent = `⚠️ Over-scanned: [${item.name}] (${item.scanned}/${item.total})`;
+                    addLog(barcode, `⚠️ Over: ${item.name}`, "warning");
+                } else {
+                    feedback.classList.add('bg-emerald-500/20', 'text-emerald-300');
+                    feedback.textContent = `✅ Deducted: [${item.name}] (Left: ${item.total - item.scanned})`;
+                    addLog(barcode, `✅ Deducted: ${item.name}`, "success");
+                }
+            }
+
+            updateUI();
+        }
+
+        function updateUI() {
+            const tbody = document.getElementById('invoiceTableBody');
+            tbody.innerHTML = '';
+            let totalQty = 0, totalScanned = 0;
+
+            barcodeMap.forEach((item) => {
+                totalQty += item.total;
+                totalScanned += item.scanned;
+                const diff = item.scanned - item.total;
+
+                let statusBadge = diff === 0 ? '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 font-semibold">Matched</span>' :
+                                  diff > 0 ? `<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-400 font-semibold">Surplus +${diff}</span>` :
+                                  `<span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-400 font-semibold">Shortage ${Math.abs(diff)}</span>`;
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-700/30 transition";
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3 text-slate-400 text-[11px]">${item.barcode}</td>
+                    <td class="py-2.5 px-3 font-medium text-slate-200">${item.name}</td>
+                    <td class="py-2.5 px-3 text-center text-slate-400">${item.total}</td>
+                    <td class="py-2.5 px-3 text-center text-indigo-400 font-bold">${item.scanned}</td>
+                    <td class="py-2.5 px-3 text-center ${diff > 0 ? 'text-amber-400' : diff < 0 ? 'text-rose-400' : 'text-slate-300'}">${diff > 0 ? '+' + diff : diff}</td>
+                    <td class="py-2.5 px-3 text-center">${statusBadge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            const percent = totalQty > 0 ? Math.min(Math.round((totalScanned / totalQty) * 100), 100) : 0;
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = `${totalScanned} / ${totalQty} (${percent}%)`;
+        }
+
+        function updateStatusBadge() {
+            document.getElementById('statusBadge').textContent = `CSV Lib: ${externalCsvLibrary.size} items | Invoice Pool: ${barcodeMap.size} items`;
+        }
+
+        function addLog(barcode, msg) {
+            const logsDiv = document.getElementById('scanLogs');
+            if (logsDiv.querySelector('.italic')) logsDiv.innerHTML = '';
+            const logItem = document.createElement('div');
+            logItem.className = "flex justify-between items-center text-[11px] border-b border-slate-700/50 pb-1 text-slate-300";
+            logItem.innerHTML = `<span class="text-slate-500">${new Date().toLocaleTimeString()}</span><span class="text-indigo-300">${barcode}</span><span>${msg}</span>`;
+            logsDiv.insertBefore(logItem, logsDiv.firstChild);
+        }
+
+        function toggleCamera() {
+            const readerDiv = document.getElementById('reader');
+            const btn = document.getElementById('toggleCameraBtn');
+            if (isCameraActive) {
+                if (html5QrcodeScanner) html5QrcodeScanner.clear().catch(e => console.error(e));
+                readerDiv.classList.add('hidden');
+                btn.textContent = "📷 Turn On Camera";
+                btn.className = "w-full py-2.5 bg-emerald-600 text-white rounded-lg text-xs font-medium";
+                isCameraActive = false;
+            } else {
+                readerDiv.classList.remove('hidden');
+                btn.textContent = "⏹️ Close Camera";
+                btn.className = "w-full py-2.5 bg-rose-600 text-white rounded-lg text-xs font-medium";
+                html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 15, qrbox: { width: 250, height: 150 } });
+                html5QrcodeScanner.render((text) => processBarcode(text));
+                isCameraActive = true;
+            }
+        }
+
+        function exportReport() {
+            let csvContent = "data:text/csv;charset=utf-8,\uFEFFBarcode,Product Name,Expected Qty,Actual Scanned,Difference,Status\n";
+            barcodeMap.forEach((i) => {
+                const diff = i.scanned - i.total;
+                let status = diff === 0 ? "Matched" : diff > 0 ? "Surplus" : "Shortage";
+                csvContent += `"${i.barcode}","${i.name}",${i.total},${i.scanned},${diff},"${status}"\n`;
+            });
+            const link = document.createElement("a");
+            link.setAttribute("href", encodeURI(csvContent));
+            link.setAttribute("download", `CW_Audit_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
